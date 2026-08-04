@@ -33,12 +33,24 @@ HydroDiffusion::HydroDiffusion(Hydro *phyd, ParameterInput *pin) :
     hydro_diffusion_defined(false),
     nu_iso{pin->GetOrAddReal("problem", "nu_iso", 0.0)},
     nu_aniso{pin->GetOrAddReal("problem", "nu_aniso", 0.0)},
+    nu_alpha{pin->GetOrAddReal("problem", "nu_alpha", 0.0)},
+    r0{pin->GetOrAddReal("problem", "r0", 1.0)},
+    cs0_square{pin->GetOrAddReal("problem", "p0_over_r0", 0.01)},
+    //pslope{pin->GetOrAddReal("problem", "pslope", 0.0)},
+    GM{pin->GetOrAddReal("problem", "GM", 0.0)},
     kappa_iso{}, kappa_aniso{},
     pmy_hydro_(phyd), pmb_(pmy_hydro_->pmy_block), pco_(pmb_->pcoord) {
   int nc1 = pmb_->ncells1, nc2 = pmb_->ncells2, nc3 = pmb_->ncells3;
 
+  std::string disk_string = "disk";
+  std::string::size_type idx = std::string(PROBLEM_GENERATOR).find(disk_string);
+
+  bool disk_problem;
+  (idx != std::string::npos) ? disk_problem = true : disk_problem = false;
+  alpha_disk_model = ((nu_alpha > 0.0) && (disk_problem));
+
   // Check if viscous process are active
-  if (nu_iso > 0.0 || nu_aniso  > 0.0) {
+  if (alpha_disk_model || nu_iso > 0.0 || nu_aniso  > 0.0) {
     hydro_diffusion_defined = true;
     // Allocate memory for fluxes
     visflx[X1DIR].NewAthenaArray(NHYDRO, nc3, nc2, nc1+1);
@@ -55,7 +67,7 @@ HydroDiffusion::HydroDiffusion(Hydro *phyd, ParameterInput *pin) :
     fz_.NewAthenaArray(nc1);
     div_vel_.NewAthenaArray(nc3, nc2, nc1);
 
-    nu.NewAthenaArray(2, nc3, nc2, nc1);
+    nu.NewAthenaArray(3, nc3, nc2, nc1); // iso, aniso, alpha
     if (pmb_->pmy_mesh->ViscosityCoeff_ == nullptr)
       CalcViscCoeff_ = ConstViscosity;
     else
@@ -107,7 +119,8 @@ void HydroDiffusion::CalcDiffusionFlux(const AthenaArray<Real> &prim,
                                        const AthenaArray<Real> &bcc) {
   SetDiffusivity(prim, bcc);
 
-  if (nu_iso > 0.0 || nu_aniso > 0.0) ClearFlux(visflx);
+  if (alpha_disk_model || nu_iso > 0.0 || nu_aniso > 0.0) ClearFlux(visflx);
+  if (alpha_disk_model) ViscousFluxAlpha(prim, iprim, visflx);
   if (nu_iso > 0.0) ViscousFluxIso(prim, iprim, visflx);
   if (nu_aniso > 0.0) ViscousFluxAniso(prim, iprim, visflx);
 
@@ -221,7 +234,7 @@ void HydroDiffusion::SetDiffusivity(const AthenaArray<Real> &w,
   }
 
   // set viscosity using func ptr
-  if (nu_iso > 0.0 || nu_aniso > 0.0)
+  if (alpha_disk_model || nu_iso > 0.0 || nu_aniso > 0.0)
     CalcViscCoeff_(this, pmb_, w, bc, il, iu, jl, ju, kl, ku);
   // set thermal conduction using func ptr
   if (kappa_iso > 0.0 || kappa_aniso > 0.0)
@@ -264,6 +277,10 @@ void HydroDiffusion::NewDiffusionDt(Real &dt_vis, Real &dt_cnd) {
         nu_t(i) = 0.0;
         kappa_t(i) = 0.0;
       }
+      if (alpha_disk_model) {
+#pragma omp simd
+        for (int i=il; i<=iu; ++i) nu_t(i) += nu(DiffProcess::alpha,k,j,i);
+      }
       if (nu_iso > 0.0) {
 #pragma omp simd
         for (int i=il; i<=iu; ++i) nu_t(i) += nu(DiffProcess::iso,k,j,i);
@@ -288,7 +305,7 @@ void HydroDiffusion::NewDiffusionDt(Real &dt_vis, Real &dt_cnd) {
         len(i) = (f2) ? std::min(len(i), dx2(i)) : len(i);
         len(i) = (f3) ? std::min(len(i), dx3(i)) : len(i);
       }
-      if ((nu_iso > 0.0) || (nu_aniso > 0.0)) {
+      if ((alpha_disk_model) || (nu_iso > 0.0) || (nu_aniso > 0.0)) {
         for (int i=il; i<=iu; ++i)
           dt_vis = std::min(dt_vis, static_cast<Real>(
               SQR(len(i))*fac/(nu_t(i) + TINY_NUMBER)));

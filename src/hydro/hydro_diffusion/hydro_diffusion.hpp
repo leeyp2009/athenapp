@@ -42,7 +42,9 @@ class HydroDiffusion {
 
   // data
   bool hydro_diffusion_defined;
-  Real nu_iso, nu_aniso; // viscosity coeff
+  bool alpha_disk_model;           // true or false
+  Real nu_iso, nu_aniso, nu_alpha; // viscosity coeff
+  Real r0, pslope, cs0_square, GM;         // The length unit r0, temperature slope, temperatue at r0 in disk problem
   AthenaArray<Real> visflx[3]; // viscous stress tensor
   AthenaArray<Real> nu; // viscosity array
 
@@ -52,7 +54,7 @@ class HydroDiffusion {
 
   // array indices for hydro diffusion (conduction & viscosity) variants: directionality
   // should not be scoped (C++11) since enumerators are only used as "int" to index arrays
-  enum DiffProcess {iso=0, aniso=1};
+  enum DiffProcess {iso=0, aniso=1, alpha=2};
 
   // functions
   // iprim is primitives in the inertial system
@@ -71,6 +73,8 @@ class HydroDiffusion {
                       AthenaArray<Real> *flx);
   void ViscousFluxAniso(const AthenaArray<Real> &p, const AthenaArray<Real> &p_i,
                         AthenaArray<Real> *flx);
+  void ViscousFluxAlpha(const AthenaArray<Real> &p, const AthenaArray<Real> &p_i,
+                      AthenaArray<Real> *flx);
 
   // thermal conduction
   void ThermalFluxIso(const AthenaArray<Real> &p, AthenaArray<Real> *flx);

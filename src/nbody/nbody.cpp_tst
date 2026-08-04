@@ -1,0 +1,256 @@
+//========================================================================================
+// Athena++ astrophysical MHD code
+// Copyright(C) 2014 James M. Stone <jmstone@princeton.edu> and other code contributors
+// Licensed under the 3-clause BSD License, see LICENSE file for details
+//========================================================================================
+//! \file disk.cpp
+//! \brief Initializes stratified Keplerian accretion disk in both cylindrical and
+//! spherical polar coordinates.  Initial conditions are in vertical hydrostatic eqm.
+
+// C headers
+//
+// C++ headers
+#include <math.h>
+#include <iostream>
+#include <sstream>
+#include <fstream>
+#include <vector>
+//#include "util.h"
+
+// Athena++ headers
+
+#include "planet.h"
+
+// OpenMP header
+#ifdef OPENMP_PARALLEL
+#include <omp.h>
+#endif
+
+//#ifndef real
+//#define real double
+//#endif
+
+using namespace std;
+static int nPlanet = 2;
+static bool feelOthers = 1;
+static real OMEGA = 0.0;
+vector<Planet> PS;
+static bool BINARY = 0;
+static real ODE_TOL = 1.0e-8;
+
+void update_planet(real dt, int NT);
+void derivs_facc(const real& x, const real y[], real dydx[]);
+
+int Embedded_Verner_7_8(const real y[],
+			const int n,
+			const real& x,
+			const real& h,
+			real  yout[],
+			void (*derivs)(const double&, 
+				  const double [],
+				  real [])); 
+
+void writePlanet(real time);
+
+int main()
+{
+  //int neqn = 4*nPlanet;
+  //real *y = new real[neqn+1];
+  //real mass00 = 1.0e-3, ecc00 = 0.0, vr00 =0.0, r00=0.99, phi00 = PI; 
+  //real mass10 = 1.0e-3, ecc10 = 0.0, vr10 =0.0, r10=1.01, phi10 = PI; 
+  real *facc = new real[nPlanet*2];
+  //real *yout = new real[neqn];
+  //real mass[2];
+  //real *vp0 = new real[nPlanet];
+  real mass0[2] = {1.0e-3,1.0e-3};
+  real rp0[2] = {1.00,1.10};
+  real phi0[2] = {PI,PI};
+  real ecc0[2] = {0.0,0.0};
+  //real vr0[2] = {0.0,0.0};
+  //real vp0[2] = {1.0,1.0};
+  real *vp0 = new real[nPlanet];
+  real *vr0 = new real[nPlanet];
+  real rbin = fabs(rp0[1] - rp0[0]);
+  //int index0[2] = {0,1};
+  real binary_orb = -1.0; // -1.0 means prograde; 1.0 mean retrograde
+  
+  real dt, tlim;
+  int NT;
+
+  dt = 1.e-3;
+  NT =20;
+  //real dtpl = dt/NT;
+
+  tlim = 50.0;
+
+
+/*
+if (nPlanet >0) {
+    real *r0   = new real[nPlanet]{r00,r01};
+    real *phi0 = new real[nPlanet]{phi00,phi01};
+    real *mass0 = new real[nPlanet]{mass00,mass01};
+    real *ecc0  = new real[nPlanet]{ecc00,ecc01};
+}
+*/
+//for (int n = 0; n<nPlanet; n++){
+    
+//}
+  //rp0 = {1.0e-3,1.0e-3}; 
+//  vector<Planet> PS;
+//  Planet planet, planet1;
+//
+
+for (int n = 0; n<nPlanet; n++){
+  rp0[n] *= (1.0-ecc0[n]);
+  vp0[n] = sqrt((mass0[n]+1.0)/rp0[n])*sqrt(1.0+ecc0[n]) - OMEGA*rp0[n];
+  vr0[n] = 0.0;
+}
+
+if (BINARY) {
+   real r_COM = (mass0[0]*rp0[0] + mass0[1]*rp0[1])/(mass0[0]+mass0[1]); // if phi0=phi1
+   real vk = sqrt((mass0[0]+mass0[1]+1.0)/r_COM); //vk at center of mass
+   real vbin0 = sqrt(mass0[1]*mass0[1]/rbin/(mass0[0]+mass0[1]));
+   real vbin1 = sqrt(mass0[0]*mass0[0]/rbin/(mass0[0]+mass0[1]));
+
+   vp0[0] = vk + binary_orb*vbin0 - OMEGA*rp0[0];
+   vp0[1] = vk - binary_orb*vbin1 - OMEGA*rp0[1];
+   vr0[0] = 0.0;
+   vr0[1] = 0.0;
+}
+
+
+for (int n = 0; n<nPlanet; n++){
+  PS.push_back(Planet(rp0[n],phi0[n],mass0[n],ecc0[n]));
+  PS[n].setIndex(n);
+  PS[n].setVr(vr0[n]);
+  PS[n].setVp(vp0[n]);
+}
+/*
+  rp0 *= (1.0-ecc0);
+  vp0 = sqrt((mass0+1.0)/rp0)*sqrt(1.0+ecc0);
+
+  r1 *= (1.0-ecc1);
+  vp1 = sqrt((mass1+1.0)/r1)*sqrt(1.0+ecc1);
+*/
+
+  //cout << "planet index: "<< PS[1].getIndex() <<endl;
+  //cout <<  PS[1].getIndex() <<endl;
+  //
+  //PS[0].GravityFromPlanet(PS[1],&facc[0]);
+  //PS[1].GravityFromPlanet(PS[0],&facc[2]);
+  //cout << "planet force for planet 0 (r, phi):"<< facc[0]<<","<< facc[1]<<endl;
+  //cout << "planet force for planet 1 (r, phi):"<< facc[2]<<","<< facc[3]<<endl;
+  cout << "main initial: rp, phi, vr, omega: "<< PS[0].getRad()<<", " 
+       << PS[0].getPhi() <<", " << PS[0].getVr() << ", " 
+       << PS[0].getVp() <<endl;
+
+  for (real t=0.0; t<tlim; ) {
+     update_planet(dt, NT);
+     t += dt;
+     cout << "This is from main() function:\n";
+     cout << "main: rp, phi, vr, omega: "<< PS[0].getRad()<<", " 
+          << PS[0].getPhi() <<", " << PS[0].getVr() << ", " 
+          << PS[0].getVp() <<endl;
+     writePlanet(t);
+  }
+
+  return 0;
+}
+
+void update_planet(real dt, int NT) {
+  int neqn = 4*nPlanet;
+  real *y = new real[neqn+1];
+  real *vp0 = new real[nPlanet];
+  real *facc = new real[nPlanet*2];
+  real *yout = new real[neqn];
+  real xt = 0.0;
+  real dtpl = dt/NT;
+
+  for (int n=0;n<nPlanet;n++){
+    PS[n].initialize(&y[n*4]);
+  }
+  //cout << "This is from update_planet() function:";
+  //cout << "update_planet: r, phi, vr, omega: "<< y[0]<<", " 
+  //     << y[1] <<", " << y[2] << ", " 
+  //     << y[3] <<endl;
+  yout[0] = ODE_TOL;
+
+  for (int i =0; i<NT; i++) {
+    int ierr = Embedded_Verner_7_8(y,neqn, xt, dtpl, yout, derivs_facc); 
+    if (ierr < 0) {
+       cout << " ode solver failed to achieve the accuracy\n";
+    }
+   for(int j=0; j<neqn;j++)
+      y[j] = yout[j];
+   xt += dtpl;
+   //cout << "y:" << y[0]<<", "<<y[1]<<", "<<y[2]<<", "<<y[3]<< endl;
+   //cout << "xt:" << xt<<", dtpl:"<<dtpl<< endl;
+      
+  }
+  for (int n=0; n < nPlanet; n++){ // copy data to planet
+     real phi = y[4*n+1];
+     while (phi > 2.0*PI) phi -= 2.0*PI;
+     while (phi < 0.0)    phi += 2.0*PI;
+     y[4*n+1] = phi;
+     PS[n].update(&y[4*n]);
+  }
+}
+
+void derivs_facc(const real& x, const real y[], real dydx[]) {
+ real *facc = new real[nPlanet*2];
+
+ for (int n=0; n < nPlanet; n++){ // copy data to planet, to calculate the force
+   PS[n].update(&y[4*n]);
+ }
+
+ for (int n=0; n < nPlanet; n++){
+       PS[n].GravityFromConfig(OMEGA,&facc[2*n]);
+   if (nPlanet>1 && feelOthers) {
+   for (int i=0; i < nPlanet; i++){
+     if (i!=n){
+       PS[n].GravityFromPlanet(PS[i],&facc[2*n]);
+     }
+    }// for i 
+    //cout << "derive_facc:planet force for planet "<< n<<":"<< facc[2*n]<<","<< facc[2*n+1]<<endl;
+    } // if nPlanet>1
+    //cout << "derive_facc:planet force for planet "<< n<<":"<< facc[2*n]<<","<< facc[2*n+1]<<endl;
+    int ii = 4*n;
+    dydx[ii+0] = y[ii+2];
+    dydx[ii+1] = y[ii+3];
+    dydx[ii+2] = facc[2*n];
+    dydx[ii+3] = facc[2*n+1];
+ }   // for n
+
+}
+
+string convertInt(int number) {
+   stringstream ss; //create a stringstream
+   ss << number;    //add number to the stream
+   return ss.str(); //return a string with the contents of the stream
+}
+
+void writePlanet(real time) {
+  static vector<ofstream*> outflist;
+  ofstream outflist1, outflist2;
+  static bool first = 1;
+  if (first) {
+    first = 0;
+    for (int i =0; i<nPlanet;i++) {
+       string filename = "planet"+convertInt(i)+".dat";
+       outflist.push_back(new ofstream(filename.c_str(),ios::out));
+       cout << "filename" << filename << endl;
+    }
+
+  }
+  
+  //outflist1.open("planet0.dat");
+
+  for (int i =0; i<nPlanet;i++) {
+     *outflist[i]   << time << " "<< PS[i].getRad() << " "
+                 << PS[i].getPhi() << " " <<PS[i].getVr()<<" "
+                 << PS[i].getVp() << " " <<PS[i].getMass()<<" "
+                 <<  endl;
+
+  }
+
+}

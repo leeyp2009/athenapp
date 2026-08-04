@@ -23,6 +23,8 @@
 //! \fn void HydroDiffusion::ViscousFluxIso
 //! \brief Calculate isotropic viscous stress as fluxes
 
+void GetCylCoord(Coordinates *pco,Real &rad,Real &phi,Real &z,int i,int j,int k);
+
 void HydroDiffusion::ViscousFluxIso(const AthenaArray<Real> &p,
                      const AthenaArray<Real> &p_i, AthenaArray<Real> *flx) {
   Hydro *ph = pmb_->phydro;
@@ -203,11 +205,186 @@ void HydroDiffusion::ViscousFluxIso(const AthenaArray<Real> &p,
 }
 
 //----------------------------------------------------------------------------------------
-//! \fn void HydroDiffusion::ViscousFluxAniso
-//! \brief Calculate anisotropic viscous stress as fluxes
+//! \fn void HydroDiffusion::ViscousFluxAlpha
+//! \brief Calculate alpha-disk viscous stress as fluxes
 
-void HydroDiffusion::ViscousFluxAniso(const AthenaArray<Real> &p,
-                            const AthenaArray<Real> &p_i, AthenaArray<Real> *flx) {
+
+void HydroDiffusion::ViscousFluxAlpha(const AthenaArray<Real> &p,
+                     const AthenaArray<Real> &p_i, AthenaArray<Real> *flx) {
+  Hydro *ph = pmb_->phydro;
+  const bool f2 = pmb_->pmy_mesh->f2;
+  const bool f3 = pmb_->pmy_mesh->f3;
+  AthenaArray<Real> &x1flux = flx[X1DIR];
+  AthenaArray<Real> &x2flux = flx[X2DIR];
+  AthenaArray<Real> &x3flux = flx[X3DIR];
+  int il, iu, jl, ju, kl, ku;
+  int is = pmb_->is; int js = pmb_->js; int ks = pmb_->ks;
+  int ie = pmb_->ie; int je = pmb_->je; int ke = pmb_->ke;
+  Real nu1, denf, flx1, flx2, flx3;
+  Real nuiso2 = - TWO_3RD;
+
+  DivVelocity(p_i, div_vel_);
+
+  // Calculate the flux across each face.
+  // i-direction
+  jl = js, ju = je, kl = ks, ku = ke;
+  if (MAGNETIC_FIELDS_ENABLED) {
+    if (f2) {
+      if (!f3) // 2D MHD limits
+        jl = js-1, ju = je+1, kl = ks, ku = ke;
+      else // 3D MHD limits
+        jl = js-1, ju = je+1, kl = ks-1, ku = ke+1;
+    }
+  }
+  for (int k=kl; k<=ku; ++k) {
+    for (int j=jl; j<=ju; ++j) {
+      FaceXdx(k, j, is, ie+1, p_i, fx_);
+      FaceXdy(k, j, is, ie+1, p_i, fy_);
+      FaceXdz(k, j, is, ie+1, p_i, fz_);
+#pragma omp simd private(nu1, denf, flx1, flx2, flx3)
+      for (int i=is; i<=ie+1; ++i) {
+        nu1  = 0.5*(nu(DiffProcess::alpha,k,j,i)   + nu(DiffProcess::alpha,k,j,i-1));
+        denf = 0.5*(p_i(IDN,k,j,i) + p_i(IDN,k,j,i-1));
+        flx1 = -denf*nu1*(fx_(i) + nuiso2*0.5*(div_vel_(k,j,i) + div_vel_(k,j,i-1)));
+        flx2 = -denf*nu1*fy_(i);
+        flx3 = -denf*nu1*fz_(i);
+        x1flux(IM1,k,j,i) += flx1;
+        x1flux(IM2,k,j,i) += flx2;
+        x1flux(IM3,k,j,i) += flx3;
+        if (NON_BAROTROPIC_EOS)
+          x1flux(IEN,k,j,i) += 0.5*((p(IM1,k,j,i-1) + p(IM1,k,j,i))*flx1 +
+                                    (p(IM2,k,j,i-1) + p(IM2,k,j,i))*flx2 +
+                                    (p(IM3,k,j,i-1) + p(IM3,k,j,i))*flx3);
+      }
+    }
+  }
+
+  // j-direction
+  il = is, iu = ie, kl = ks, ku = ke;
+  if (MAGNETIC_FIELDS_ENABLED) {
+    if (!f3) // 2D MHD limits
+      il = is-1, iu = ie+1, kl = ks, ku = ke;
+    else // 3D MHD limits
+      il = is-1, iu = ie+1, kl = ks-1, ku = ke+1;
+  }
+  if (f2) { // modify x2flux for 2D or 3D
+    for (int k=kl; k<=ku; ++k) {
+      for (int j=js; j<=je+1; ++j) {
+        // compute fluxes
+        FaceYdx(k, j, is, ie, p_i, fx_);
+        FaceYdy(k, j, is, ie, p_i, fy_);
+        FaceYdz(k, j, is, ie, p_i, fz_);
+        // store fluxes
+#pragma omp simd private(nu1, denf, flx1, flx2, flx3)
+        for (int i=il; i<=iu; i++) {
+          nu1  = 0.5*(nu(DiffProcess::alpha,k,j,i)    + nu(DiffProcess::alpha,k,j-1,i));
+          denf = 0.5*(p_i(IDN,k,j-1,i)+ p_i(IDN,k,j,i));
+          flx1 = -denf*nu1*fx_(i);
+          flx2 = -denf*nu1*(fy_(i) + nuiso2*0.5*(div_vel_(k,j-1,i) + div_vel_(k,j,i)));
+          flx3 = -denf*nu1*fz_(i);
+          x2flux(IM1,k,j,i) += flx1;
+          x2flux(IM2,k,j,i) += flx2;
+          x2flux(IM3,k,j,i) += flx3;
+          if (NON_BAROTROPIC_EOS)
+            x2flux(IEN,k,j,i) += 0.5*((p(IM1,k,j,i) + p(IM1,k,j-1,i))*flx1 +
+                                      (p(IM2,k,j,i) + p(IM2,k,j-1,i))*flx2 +
+                                      (p(IM3,k,j,i) + p(IM3,k,j-1,i))*flx3);
+        }
+      }
+    }
+  } else { // modify x2flux for 1D
+    // compute fluxes
+    FaceYdx(ks, js, is, ie, p_i, fx_);
+    FaceYdy(ks, js, is, ie, p_i, fy_);
+    FaceYdz(ks, js, is, ie, p_i, fz_);
+    // store fluxes
+#pragma omp simd private(nu1, denf, flx1, flx2, flx3)
+    for (int i=il; i<=iu; i++) {
+      nu1  = nu(DiffProcess::alpha,ks,js,i);
+      denf = p_i(IDN,ks,js,i);
+      flx1 = -denf*nu1*fx_(i);
+      flx2 = -denf*nu1*(fy_(i) + nuiso2*div_vel_(ks,js,i));
+      flx3 = -denf*nu1*fz_(i);
+      x2flux(IM1,ks,js,i) += flx1;
+      x2flux(IM2,ks,js,i) += flx2;
+      x2flux(IM3,ks,js,i) += flx3;
+      if (NON_BAROTROPIC_EOS)
+        x2flux(IEN,ks,js,i) += p(IM1,ks,js,i)*flx1 +
+                               p(IM2,ks,js,i)*flx2 +
+                               p(IM3,ks,js,i)*flx3;
+    }
+#pragma omp simd
+    for (int i=il; i<=iu; i++) {
+      x2flux(IM1,ks,je+1,i) = x2flux(IM1,ks,js,i);
+      x2flux(IM2,ks,je+1,i) = x2flux(IM2,ks,js,i);
+      x2flux(IM3,ks,je+1,i) = x2flux(IM3,ks,js,i);
+      if (NON_BAROTROPIC_EOS)
+        x2flux(IEN,ks,je+1,i) = x2flux(IEN,ks,js,i);
+    }
+  }
+  // k-direction
+  // set the loop limits
+  il = is, iu = ie, jl = js, ju = je;
+  if (MAGNETIC_FIELDS_ENABLED) {
+    if (f2) // 2D or 3D MHD limits
+      il = is-1, iu = ie+1, jl = js-1, ju = je+1;
+    else // 1D MHD limits
+      il = is-1, iu = ie+1;
+  }
+  if (pmb_->block_size.nx3 > 1) { // modify x3flux for 3D
+    for (int k=ks; k<=ke+1; ++k) {
+      for (int j=jl; j<=ju; ++j) {
+        // compute fluxes
+        FaceZdx(k, j, is, ie, p_i, fx_);
+        FaceZdy(k, j, is, ie, p_i, fy_);
+        FaceZdz(k, j, is, ie, p_i, fz_);
+        // store fluxes
+#pragma omp simd private(nu1, denf, flx1, flx2, flx3)
+        for (int i=il; i<=iu; i++) {
+          nu1  = 0.5*(nu(DiffProcess::alpha,k,j,i)     + nu(DiffProcess::alpha,k-1,j,i));
+          denf = 0.5*(p_i(IDN,k-1,j,i) + p_i(IDN,k,j,i));
+          flx1 = -denf*nu1*fx_(i);
+          flx2 = -denf*nu1*fy_(i);
+          flx3 = -denf*nu1*(fz_(i) + nuiso2*0.5*(div_vel_(k-1,j,i) + div_vel_(k,j,i)));
+          x3flux(IM1,k,j,i) += flx1;
+          x3flux(IM2,k,j,i) += flx2;
+          x3flux(IM3,k,j,i) += flx3;
+          if (NON_BAROTROPIC_EOS)
+            x3flux(IEN,k,j,i) += 0.5*((p(IM1,k,j,i) + p(IM1,k-1,j,i))*flx1 +
+                                      (p(IM2,k,j,i) + p(IM2,k-1,j,i))*flx2 +
+                                      (p(IM3,k,j,i) + p(IM3,k-1,j,i))*flx3);
+        }
+      }
+    }
+  } else { // modify x2flux for 1D or 2D
+    for (int j=jl; j<=ju; ++j) {
+      // compute fluxes
+      FaceZdx(ks, j, is, ie, p_i, fx_);
+      FaceZdy(ks, j, is, ie, p_i, fy_);
+      FaceZdz(ks, j, is, ie, p_i, fz_);
+      // store fluxes
+#pragma omp simd private(nu1, denf, flx1, flx2, flx3)
+      for (int i=il; i<=iu; i++) {
+        nu1 = nu(DiffProcess::alpha,ks,j,i);
+        denf = p_i(IDN,ks,j,i);
+        flx1 = -denf*nu1*fx_(i);
+        flx2 = -denf*nu1*fy_(i);
+        flx3 = -denf*nu1*(fz_(i) + nuiso2*div_vel_(ks,j,i));
+        x3flux(IM1,ks,j,i) += flx1;
+        x3flux(IM2,ks,j,i) += flx2;
+        x3flux(IM3,ks,j,i) += flx3;
+        x3flux(IM1,ke+1,j,i) = x3flux(IM1,ks,j,i);
+        x3flux(IM2,ke+1,j,i) = x3flux(IM2,ks,j,i);
+        x3flux(IM3,ke+1,j,i) = x3flux(IM3,ks,j,i);
+        if (NON_BAROTROPIC_EOS) {
+          x3flux(IEN,ks,j,i) += p(IM1,ks,j,i)*flx1 +
+                                p(IM2,ks,j,i)*flx2 +
+                                p(IM3,ks,j,i)*flx3;
+          x3flux(IEN,ke+1,j,i) = x3flux(IEN,ks,j,i);
+        }
+      }
+    }
+  }
   return;
 }
 
@@ -488,6 +665,16 @@ void HydroDiffusion::FaceZdz(const int k, const int j, const int il, const int i
 }
 
 //----------------------------------------------------------------------------------------
+//! \fn void HydroDiffusion::ViscousFluxAniso
+//! \brief Calculate anisotropic viscous stress as fluxes
+
+void HydroDiffusion::ViscousFluxAniso(const AthenaArray<Real> &p,
+                            const AthenaArray<Real> &p_i, 
+                            AthenaArray<Real> *flx) {
+  return;
+}
+
+//----------------------------------------------------------------------------------------
 //! constant viscosity
 
 void ConstViscosity(HydroDiffusion *phdif, MeshBlock *pmb, const AthenaArray<Real> &prim,
@@ -502,6 +689,33 @@ void ConstViscosity(HydroDiffusion *phdif, MeshBlock *pmb, const AthenaArray<Rea
       }
     }
   }
+
+  if (phdif->alpha_disk_model) {
+    Real rad, phi, z;
+    Real inv_mu_sqrt = 1.0/std::sqrt(phdif->GM);
+    for (int k=ks; k<=ke; ++k) {
+      for (int j=js; j<=je; ++j) {
+#pragma omp simd
+        for (int i=is; i<=ie; ++i) {
+          GetCylCoord(pmb->pcoord,rad,phi,z,i,j,k); 
+          if (NON_BAROTROPIC_EOS) {
+             const Real &gas_pre = prim(IPR, k, j, i);
+             const Real &gas_rho = prim(IDN, k, j, i);
+
+             Real inv_OmegaK = inv_mu_sqrt*pow(rad,1.5);
+             phdif->nu(HydroDiffusion::DiffProcess::alpha,k,j,i) = 
+                 phdif->nu_alpha*gas_pre/gas_rho*inv_OmegaK;
+          } else {
+             Real inv_OmegaK = inv_mu_sqrt*pow(rad,1.5);
+             phdif->nu(HydroDiffusion::DiffProcess::alpha,k,j,i) = 
+                 phdif->nu_alpha*phdif->cs0_square*inv_OmegaK; // global isothermal EoS
+           
+          }
+        }
+      }
+    }  
+  }
+
   if (phdif->nu_aniso > 0.0) {
     for (int k=ks; k<=ke; ++k) {
       for (int j=js; j<=je; ++j) {
@@ -510,6 +724,20 @@ void ConstViscosity(HydroDiffusion *phdif, MeshBlock *pmb, const AthenaArray<Rea
           phdif->nu(HydroDiffusion::DiffProcess::aniso,k,j,i) = phdif->nu_aniso;
       }
     }
+  }
+  return;
+}
+
+
+void GetCylCoord(Coordinates *pco,Real &rad,Real &phi,Real &z,int i,int j,int k) {
+  if (std::strcmp(COORDINATE_SYSTEM, "cylindrical") == 0) {
+    rad=pco->x1v(i);
+    phi=pco->x2v(j);
+    z=pco->x3v(k);
+  } else if (std::strcmp(COORDINATE_SYSTEM, "spherical_polar") == 0) {
+    rad=std::abs(pco->x1v(i)*std::sin(pco->x2v(j)));
+    phi=pco->x3v(i);
+    z=pco->x1v(i)*std::cos(pco->x2v(j));
   }
   return;
 }
