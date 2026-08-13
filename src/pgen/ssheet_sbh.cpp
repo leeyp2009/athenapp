@@ -49,7 +49,7 @@ int ipert; // initial pattern
 Real qshear, Omega0;
 Real hst_dt, hst_next_time;
 bool error_output;
-Real m_planet;   // sBH mass
+Real mp;   // sBH mass
 Real x1_p, x2_p; // coordinates(x,y)
 Real eps_p;      // Smoothing length
 
