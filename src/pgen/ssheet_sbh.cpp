@@ -49,10 +49,17 @@ int ipert; // initial pattern
 Real qshear, Omega0;
 Real hst_dt, hst_next_time;
 bool error_output;
+Real m_planet;   // sBH mass
+Real x1_p, x2_p; // coordinates(x,y)
+Real eps_p;      // Smoothing length
 
 Real Historydvyc(MeshBlock *pmb, int iout);
 Real Historyvxs(MeshBlock *pmb, int iout);
 Real Historydvys(MeshBlock *pmb, int iout);
+void GravitySource(MeshBlock *pmb, const Real time, const Real dt,
+                           const AthenaArray<Real> &prim,
+                           const AthenaArray<Real> &bcc,
+                           AthenaArray<Real> &cons);
 } // namespace
 
 //======================================================================================
@@ -67,6 +74,11 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
         << "This problem generator requires shearing box."   << std::endl;
     ATHENA_ERROR(msg);
   }
+
+  mp = pin->GetOrAddReal("problem", "mp", 0.0); //  default value: 0
+  x1_p     = pin->GetOrAddReal("problem", "x1_p", 0.0);     // 
+  x2_p     = pin->GetOrAddReal("problem", "x2_p", 0.0);
+  eps_p    = pin->GetOrAddReal("problem", "eps_p", 0.1);    // softening length
 
   if (mesh_size.nx2 == 1) {
     std::stringstream msg;
@@ -149,6 +161,8 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
         << "This problem requires that ipert is from 1 to 3." << std::endl;
     ATHENA_ERROR(msg);
   }
+
+  EnrollUserExplicitSourceFunction(GravitySource);
 
   return;
 }
@@ -525,5 +539,50 @@ Real Historydvys(MeshBlock *pmb, int iout) {
   Real dvy0 = iso_cs*amp
               *std::abs(static_cast<Real>(nwy)/static_cast<Real>(nwx));
   return dvys/(dvy0*tvol);
+}
+
+void GravitySource(MeshBlock *pmb, const Real time, const Real dt,
+                           const AthenaArray<Real> &prim,
+                           const AthenaArray<Real> &bcc,
+                           AthenaArray<Real> &cons) {
+  if (mp <= 0.0) return; // 
+
+  for (int k = pmb->ks; k <= pmb->ke; ++k) {
+    for (int j = pmb->js; j <= pmb->je; ++j) {
+      for (int i = pmb->is; i <= pmb->ie; ++i) {
+        Real x1 = pmb->pcoord->x1v(i);
+        Real x2 = pmb->pcoord->x2v(j);
+        Real x3 = pmb->pcoord->x3v(k);
+
+        // calculating distance
+        Real dx1 = x1 - x1_p;
+        Real dx2 = x2 - x2_p;
+        Real dx3 = x3; // x3_p = 0
+        Real r2  = SQR(dx1) + SQR(dx2) + SQR(dx3);
+        Real r_soft2 = r2 + SQR(eps_p);
+        Real dist_3 = std::pow(r_soft2, 1.5);
+
+        // a = - G * M_p * r_vec / (r^2 + eps^2)^(3/2) (G = 1)
+        Real ax1 = - mp * dx1 / dist_3;
+        Real ax2 = - mp * dx2 / dist_3;
+        Real ax3 = - mp * dx3 / dist_3;
+
+        Real rho = prim(IDN, k, j, i);
+
+        // 1. update (IM1, IM2, IM3)
+        cons(IM1, k, j, i) += dt * rho * ax1;
+        cons(IM2, k, j, i) += dt * rho * ax2;
+        cons(IM3, k, j, i) += dt * rho * ax3;
+
+        // 2.  \rho * (a \cdot v)
+        if (NON_BAROTROPIC_EOS) {
+          Real vx1 = prim(IVX, k, j, i);
+          Real vx2 = prim(IVY, k, j, i);
+          Real vx3 = prim(IVZ, k, j, i);
+          cons(IEN, k, j, i) += dt * rho * (ax1 * vx1 + ax2 * vx2 + ax3 * vx3);
+        }
+      }
+    }
+  }
 }
 } // namespace
