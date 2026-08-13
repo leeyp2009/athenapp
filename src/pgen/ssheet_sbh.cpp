@@ -56,10 +56,10 @@ Real eps_p;      // Smoothing length
 Real Historydvyc(MeshBlock *pmb, int iout);
 Real Historyvxs(MeshBlock *pmb, int iout);
 Real Historydvys(MeshBlock *pmb, int iout);
-void GravitySource(MeshBlock *pmb, const Real time, const Real dt,
-                           const AthenaArray<Real> &prim,
-                           const AthenaArray<Real> &bcc,
-                           AthenaArray<Real> &cons);
+
+void GravitySource(MeshBlock *pmb, const Real time, const Real dt, const AthenaArray<Real> &prim,
+     const AthenaArray<Real> &prim_scalar, const AthenaArray<Real> &bcc,
+    AthenaArray<Real> &cons, AthenaArray<Real> &cons_scalar);
 } // namespace
 
 //======================================================================================
@@ -541,10 +541,9 @@ Real Historydvys(MeshBlock *pmb, int iout) {
   return dvys/(dvy0*tvol);
 }
 
-void GravitySource(MeshBlock *pmb, const Real time, const Real dt,
-                           const AthenaArray<Real> &prim,
-                           const AthenaArray<Real> &bcc,
-                           AthenaArray<Real> &cons) {
+void GravitySource(MeshBlock *pmb, const Real time, const Real dt, const AthenaArray<Real> &prim,
+     const AthenaArray<Real> &prim_scalar, const AthenaArray<Real> &bcc,
+    AthenaArray<Real> &cons, AthenaArray<Real> &cons_scalar) {
   if (mp <= 0.0) return; // 
 
   for (int k = pmb->ks; k <= pmb->ke; ++k) {
