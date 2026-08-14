@@ -177,8 +177,8 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
 //  \brief
 
 void MeshBlock::ProblemGenerator(ParameterInput *pin) {
-  //Real rad(0.0), phi(0.0), z(0.0);
-  //Real den, vel, vis_vel_r;
+  Real rad(0.0), phi(0.0), z(0.0);
+  Real vis_vel_r;
   //Real x1, x2, x3;
   int shboxcoord = porb->shboxcoord;
   int il = is - NGHOST; int iu = ie + NGHOST;
