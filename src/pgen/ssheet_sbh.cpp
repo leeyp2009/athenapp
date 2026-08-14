@@ -41,7 +41,7 @@
 #endif
 
 namespace {
-Real iso_cs, gm1, d0, p0;
+Real iso_cs, gm1, d0, p0, rad0;
 Real amp; // amplitude
 int nwx, nwy; // Wavenumbers
 Real x1size,x2size,x3size;
@@ -52,6 +52,7 @@ bool error_output;
 Real mp;   // sBH mass
 Real x1_p, x2_p; // coordinates(x,y)
 Real eps_p;      // Smoothing length
+Real nu_iso;
 
 Real Historydvyc(MeshBlock *pmb, int iout);
 Real Historyvxs(MeshBlock *pmb, int iout);
@@ -79,6 +80,10 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   x1_p     = pin->GetOrAddReal("problem", "x1_p", 0.0);     // 
   x2_p     = pin->GetOrAddReal("problem", "x2_p", 0.0);
   eps_p    = pin->GetOrAddReal("problem", "eps_p", 0.1);    // softening length
+  nu_iso   = pin->GetOrAddReal("problem","nu_iso",0.0);
+  d0       = pin->GetOrAddReal("problem","d0",0.0);     // density
+  p0       = pin->GetOrAddReal("problem","p0",0.0);     // pressure
+  rad0       = pin->GetOrAddReal("problem","rad0",0.0);     // box location r0
 
   if (mesh_size.nx2 == 1) {
     std::stringstream msg;
@@ -88,8 +93,8 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   }
 
   // read ipert parameter
-  d0 = 1.0;
-  p0 = 1e-6;
+  //d0 = 1.0;
+  //p0 = 1e-6;
   if (NON_BAROTROPIC_EOS) {
     gm1 = (pin->GetReal("hydro","gamma") - 1.0);
     iso_cs = std::sqrt((gm1+1.0)*p0/d0);
@@ -172,6 +177,9 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
 //  \brief
 
 void MeshBlock::ProblemGenerator(ParameterInput *pin) {
+  //Real rad(0.0), phi(0.0), z(0.0);
+  //Real den, vel, vis_vel_r;
+  //Real x1, x2, x3;
   int shboxcoord = porb->shboxcoord;
   int il = is - NGHOST; int iu = ie + NGHOST;
   int jl = js - NGHOST; int ju = je + NGHOST;
@@ -185,6 +193,7 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
     std::cout << "iso_cs = " << iso_cs << std::endl;
     std::cout << "d0 = " << d0 << std::endl;
     std::cout << "p0 = " << p0 << std::endl;
+    std::cout << "rad0 = " << rad0 << std::endl;
     std::cout << "ipert  = " << ipert  << std::endl;
     std::cout << "[ssheet.cpp]: [Lx,Ly,Lz] = [" <<x1size <<","<<x2size
               <<","<<x3size<<"]"<<std::endl;
@@ -206,10 +215,15 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         x2 = pcoord->x2v(j);
         rd = d0;
         rp = p0;
+        //Real vx1 = 0.0;
+        //Real vx2 = -qomg * x1; 
+        //Real vx3 = 0.0;
+        GetCylCoord(pcoord,rad,phi,z,i,j,k); // convert to cylindrical coordinates
         if (ipert == 1) {
           // 1) pure shear bg flow:
+          vis_vel_r     = -1.5*(nu_iso/rad);
           phydro->u(IDN,k,j,i) = rd;
-          phydro->u(IM1,k,j,i) = 0.0;
+          phydro->u(IM1,k,j,i) = rd*vis_vel_r;
           phydro->u(IM2,k,j,i) = 0.0;
           if(!porb->orbital_advection_defined)
             phydro->u(IM2,k,j,i) -= rd*qshear*Omega0*x1;
@@ -583,5 +597,24 @@ void GravitySource(MeshBlock *pmb, const Real time, const Real dt, const AthenaA
       }
     }
   }
+}
+
+void GetCylCoord(Coordinates *pco,Real &rad,Real &phi,Real &z,int i,int j,int k) {
+  if (std::strcmp(COORDINATE_SYSTEM, "cylindrical") == 0) {
+    rad=pco->x1v(i);
+    phi=pco->x2v(j);
+    z=pco->x3v(k);
+  } else if (std::strcmp(COORDINATE_SYSTEM, "spherical_polar") == 0) {
+    rad=std::abs(pco->x1v(i)*std::sin(pco->x2v(j)));
+    phi=pco->x3v(k);
+    z=pco->x1v(i)*std::cos(pco->x2v(j));
+  } else if (std::strcmp(COORDINATE_SYSTEM, "cartesian") == 0) {
+    Real x = pco->x1v(i);
+    Real y = pco->x2v(j);
+    rad = std::sqrt(SQR(x) + SQR(y));
+    phi = std::atan2(y, x);
+    z   = pco->x3v(k);
+  }
+  return;
 }
 } // namespace
