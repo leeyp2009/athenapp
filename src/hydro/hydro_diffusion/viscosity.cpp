@@ -736,8 +736,14 @@ void GetCylCoord(Coordinates *pco,Real &rad,Real &phi,Real &z,int i,int j,int k)
     z=pco->x3v(k);
   } else if (std::strcmp(COORDINATE_SYSTEM, "spherical_polar") == 0) {
     rad=std::abs(pco->x1v(i)*std::sin(pco->x2v(j)));
-    phi=pco->x3v(i);
+    phi=pco->x3v(k);
     z=pco->x1v(i)*std::cos(pco->x2v(j));
+  } else if (std::strcmp(COORDINATE_SYSTEM, "cartesian") == 0) {
+    Real x = pco->x1v(i);
+    Real y = pco->x2v(j);
+    rad = std::sqrt(SQR(x) + SQR(y));
+    phi = std::atan2(y, x);
+    z   = pco->x3v(k);
   }
   return;
 }
