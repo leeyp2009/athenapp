@@ -219,12 +219,12 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         //Real vx1 = 0.0;
         //Real vx2 = -qomg * x1; 
         //Real vx3 = 0.0;
-        GetCylCoord(pcoord,rad,phi,z,i,j,k); // convert to cylindrical coordinates
+        //GetCylCoord(pcoord,rad,phi,z,i,j,k); // convert to cylindrical coordinates
         if (ipert == 1) {
           // 1) pure shear bg flow:
-          vis_vel_r     = -1.5*(nu_iso/rad);
+          //vis_vel_r     = -1.5*(nu_iso/rad);
           phydro->u(IDN,k,j,i) = rd;
-          phydro->u(IM1,k,j,i) = rd*vis_vel_r;
+          phydro->u(IM1,k,j,i) = 0.0;
           phydro->u(IM2,k,j,i) = 0.0;
           if(!porb->orbital_advection_defined)
             phydro->u(IM2,k,j,i) -= rd*qshear*Omega0*x1;
