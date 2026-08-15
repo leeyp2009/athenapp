@@ -199,6 +199,9 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
     std::cout << "d0 = " << d0 << std::endl;
     std::cout << "p0 = " << p0 << std::endl;
     std::cout << "rad0 = " << rad0 << std::endl;
+    std::cout << "Pp = " << Pp << std::endl;
+    std::cout << "t0_pp = " << t0_pp << std::endl;
+    std::cout << "nu_iso = " << nu_iso << std::endl;
     std::cout << "ipert  = " << ipert  << std::endl;
     std::cout << "[ssheet.cpp]: [Lx,Ly,Lz] = [" <<x1size <<","<<x2size
               <<","<<x3size<<"]"<<std::endl;
