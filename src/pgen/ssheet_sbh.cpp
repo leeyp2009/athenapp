@@ -86,7 +86,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   p0       = pin->GetOrAddReal("problem","p0",0.0);     // pressure
   rad0     = pin->GetOrAddReal("problem","rad0",1.0);     // box location r0
   t0_pp    = pin->GetOrAddReal("problem","t0_pp",0.0)*2.0*PI;     // time to put sBH
-  Pp       = pin->GetOrAddReal("problem","rad0",10.0);     // ramp up time for sBH mass
+  Pp       = pin->GetOrAddReal("problem","ts",10.0);     // ramp up time for sBH mass
 
   Pp_time  = Pp*2.0*PI;  
 
