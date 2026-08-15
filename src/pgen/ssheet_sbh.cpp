@@ -569,10 +569,6 @@ void GravitySource(MeshBlock *pmb, const Real time, const Real dt, const AthenaA
   Real fmp;
   fmp = 1.0;
   if (mp <= 0.0) return; // 
-  if (time < t0_pp + Pp_time) {
-     fmp = SQR(std::sin(time/(2.0*Pp_time)*PI)); 
-     std::cout << "mp = " << mp*fmp << std::endl;
-  }
      
   for (int k = pmb->ks; k <= pmb->ke; ++k) {
     for (int j = pmb->js; j <= pmb->je; ++j) {
@@ -588,7 +584,13 @@ void GravitySource(MeshBlock *pmb, const Real time, const Real dt, const AthenaA
         Real r2  = SQR(dx1) + SQR(dx2) + SQR(dx3);
         Real r_soft2 = r2 + SQR(eps_p);
         Real dist_3 = std::pow(r_soft2, 1.5);
-        
+
+       if (time < t0_pp + Pp_time) {
+          fmp = SQR(std::sin(time/(2.0*Pp_time)*PI)); 
+          std::cout << "mp = " << mp*fmp << std::endl;
+       } else {
+          fmp = 1.0;
+       }
 
         // a = - G * M_p * r_vec / (r^2 + eps^2)^(3/2) (G = 1)
         Real ax1 = - fmp * mp * dx1 / dist_3;
