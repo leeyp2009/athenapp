@@ -566,10 +566,12 @@ Real Historydvys(MeshBlock *pmb, int iout) {
 void GravitySource(MeshBlock *pmb, const Real time, const Real dt, const AthenaArray<Real> &prim,
      const AthenaArray<Real> &prim_scalar, const AthenaArray<Real> &bcc,
     AthenaArray<Real> &cons, AthenaArray<Real> &cons_scalar) {
+  Real fmp;
+  fmp = 1.0;
   if (mp <= 0.0) return; // 
   if (time < t0_pp + Pp_time) {
-     mp *= SQR(std::sin(time/(2.0*Pp_time)*PI)); 
-     std::cout << "mp = " << mp << std::endl;
+     fmp = SQR(std::sin(time/(2.0*Pp_time)*PI)); 
+     std::cout << "mp = " << mp*fmp << std::endl;
   }
      
   for (int k = pmb->ks; k <= pmb->ke; ++k) {
@@ -589,9 +591,9 @@ void GravitySource(MeshBlock *pmb, const Real time, const Real dt, const AthenaA
         
 
         // a = - G * M_p * r_vec / (r^2 + eps^2)^(3/2) (G = 1)
-        Real ax1 = - mp * dx1 / dist_3;
-        Real ax2 = - mp * dx2 / dist_3;
-        Real ax3 = - mp * dx3 / dist_3;
+        Real ax1 = - fmp * mp * dx1 / dist_3;
+        Real ax2 = - fmp * mp * dx2 / dist_3;
+        Real ax3 = - fmp * mp * dx3 / dist_3;
 
         Real rho = prim(IDN, k, j, i);
 
