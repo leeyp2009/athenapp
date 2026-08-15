@@ -580,7 +580,8 @@ void GravitySource(MeshBlock *pmb, const Real time, const Real dt, const AthenaA
         Real r_soft2 = r2 + SQR(eps_p);
         Real dist_3 = std::pow(r_soft2, 1.5);
         if (time < t0_pp + Pp_time) {
-             mp *= SQR(std::sin(time/(2.0*Pp_time)*PI));   
+             mp *= SQR(std::sin(time/(2.0*Pp_time)*PI)); 
+        }
 
         // a = - G * M_p * r_vec / (r^2 + eps^2)^(3/2) (G = 1)
         Real ax1 = - mp * dx1 / dist_3;
