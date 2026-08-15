@@ -49,7 +49,7 @@ int ipert; // initial pattern
 Real qshear, Omega0;
 Real hst_dt, hst_next_time;
 bool error_output;
-Real mp;   // sBH mass
+Real mp, t0_pp, Pp, Pp_time;   // sBH mass
 Real x1_p, x2_p; // coordinates(x,y)
 Real eps_p;      // Smoothing length
 Real nu_iso;
@@ -84,7 +84,11 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   nu_iso   = pin->GetOrAddReal("problem","nu_iso",0.0);
   d0       = pin->GetOrAddReal("problem","d0",0.0);     // density
   p0       = pin->GetOrAddReal("problem","p0",0.0);     // pressure
-  rad0       = pin->GetOrAddReal("problem","rad0",0.0);     // box location r0
+  rad0     = pin->GetOrAddReal("problem","rad0",1.0);     // box location r0
+  t0_pp    = pin->GetOrAddReal("problem","t0_pp",0.0)*2.0*PI;     // time to put sBH
+  Pp       = pin->GetOrAddReal("problem","rad0",10.0);     // ramp up time for sBH mass
+
+  Pp_time  = Pp*2.0*PI;  
 
   if (mesh_size.nx2 == 1) {
     std::stringstream msg;
@@ -575,6 +579,8 @@ void GravitySource(MeshBlock *pmb, const Real time, const Real dt, const AthenaA
         Real r2  = SQR(dx1) + SQR(dx2) + SQR(dx3);
         Real r_soft2 = r2 + SQR(eps_p);
         Real dist_3 = std::pow(r_soft2, 1.5);
+        if (time < t0_pp + Pp_time) {
+             Real mp *= SQR(std::sin(time/(2.0*Pp_time)*PI));   
 
         // a = - G * M_p * r_vec / (r^2 + eps^2)^(3/2) (G = 1)
         Real ax1 = - mp * dx1 / dist_3;
