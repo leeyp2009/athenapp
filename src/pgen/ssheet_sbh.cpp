@@ -567,7 +567,7 @@ void GravitySource(MeshBlock *pmb, const Real time, const Real dt, const AthenaA
      const AthenaArray<Real> &prim_scalar, const AthenaArray<Real> &bcc,
     AthenaArray<Real> &cons, AthenaArray<Real> &cons_scalar) {
   Real fmp;
-  fmp = 1.0;
+  // fmp = 1.0;
   if (mp <= 0.0) return; // 
      
   for (int k = pmb->ks; k <= pmb->ke; ++k) {
