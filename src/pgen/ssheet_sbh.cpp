@@ -569,6 +569,7 @@ void GravitySource(MeshBlock *pmb, const Real time, const Real dt, const AthenaA
   if (mp <= 0.0) return; // 
   if (time < t0_pp + Pp_time) {
      mp *= SQR(std::sin(time/(2.0*Pp_time)*PI)); 
+     std::cout << "mp = " << mp << std::endl;
   }
      
   for (int k = pmb->ks; k <= pmb->ke; ++k) {
