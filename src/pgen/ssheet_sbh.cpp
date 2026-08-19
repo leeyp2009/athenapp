@@ -173,7 +173,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     amp = 0.0;
     nwx = 0;
     nwy = 0;
-    AllocateUserMeshDataField(1);
+    AllocateRealUserMeshDataField(1);
     ruser_mesh_data[0].NewAthenaArray(1);
     AllocateUserHistoryOutput(1);
     EnrollUserHistoryOutput(0, HistoryAccretionRate, "mdot_p", UserHistoryOperation::sum);
@@ -638,7 +638,7 @@ void AccretionSource(MeshBlock *pmb, const Real time, const Real dt,
                      const AthenaArray<Real> &bcc, AthenaArray<Real> &cons, 
                      AthenaArray<Real> &cons_scalar) {
   // 
-  pmb->ruser_mesh_data[0](0) = 0.0;
+  pmb->pmy_mesh->ruser_mesh_data[0](0) = 0.0;
   
   if (mp <= 0.0 || r_acc <= 0.0) return;
   if (time < t0_pp) return; // 
@@ -686,7 +686,7 @@ void AccretionSource(MeshBlock *pmb, const Real time, const Real dt,
       }
     }
   }
-  pmb->ruser_mesh_data[0](0) = dM_block;
+  pmb->pmy_mesh->ruser_mesh_data[0](0) = dM_block;
 }
 
 Real HistoryAccretionRate(MeshBlock *pmb, int iout) {
@@ -695,7 +695,7 @@ Real HistoryAccretionRate(MeshBlock *pmb, int iout) {
   if (dt <= 0.0) return 0.0;
 
   // obtain total accreted mass from pmb --> AccretionSource 
-  Real dM_block = pmb->ruser_mesh_data[0](0);
+  Real dM_block = pmb->pmy_mesh->ruser_mesh_data[0](0);
 
   // accretion rate from each block: (Athena++ will sum over each block)
   return dM_block / dt;
