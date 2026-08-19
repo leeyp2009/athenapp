@@ -53,6 +53,7 @@ Real mp, t0_pp, Pp, Pp_time;   // sBH mass
 Real x1_p, x2_p; // coordinates(x,y)
 Real eps_p;      // Smoothing length
 Real nu_iso;
+Real r_acc, acc_rate;
 
 Real Historydvyc(MeshBlock *pmb, int iout);
 Real Historyvxs(MeshBlock *pmb, int iout);
@@ -62,6 +63,10 @@ void GetCylCoord(Coordinates *pco,Real &rad,Real &phi,Real &z,int i,int j,int k)
 void GravitySource(MeshBlock *pmb, const Real time, const Real dt, const AthenaArray<Real> &prim,
      const AthenaArray<Real> &prim_scalar, const AthenaArray<Real> &bcc,
     AthenaArray<Real> &cons, AthenaArray<Real> &cons_scalar);
+void AccretionSource(MeshBlock *pmb, const Real time, const Real dt, 
+     const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
+     const AthenaArray<Real> &bcc, AthenaArray<Real> &cons, 
+     AthenaArray<Real> &cons_scalar);
 } // namespace
 
 //======================================================================================
@@ -87,6 +92,8 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   rad0     = pin->GetOrAddReal("problem","rad0",1.0);     // box location r0
   t0_pp    = pin->GetOrAddReal("problem","t0_pp",0.0)*2.0*PI;     // time to put sBH
   Pp       = pin->GetOrAddReal("problem","ts",10.0);     // ramp up time for sBH mass
+  r_acc    = pin->GetOrAddReal("problem", "racc", eps_p); // accretion radius
+  acc_rate = pin->GetOrAddReal("problem", "rate", 0.1); // removal rate
 
   Pp_time  = Pp*2.0*PI;  
 
@@ -173,6 +180,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   }
 
   EnrollUserExplicitSourceFunction(GravitySource);
+  EnrollUserExplicitSourceFunction(AccretionSource);
 
   return;
 }
@@ -614,6 +622,53 @@ void GravitySource(MeshBlock *pmb, const Real time, const Real dt, const AthenaA
           Real vx2 = prim(IVY, k, j, i);
           Real vx3 = prim(IVZ, k, j, i);
           cons(IEN, k, j, i) += dt * rho * (ax1 * vx1 + ax2 * vx2 + ax3 * vx3);
+        }
+      }
+    }
+  }
+}
+
+void AccretionSource(MeshBlock *pmb, const Real time, const Real dt, 
+                     const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
+                     const AthenaArray<Real> &bcc, AthenaArray<Real> &cons, 
+                     AthenaArray<Real> &cons_scalar) {
+  // 
+  if (mp <= 0.0 || r_acc <= 0.0) return;
+  if (time < t0_pp) return; // 
+
+  for (int k = pmb->ks; k <= pmb->ke; ++k) {
+    for (int j = pmb->js; j <= pmb->je; ++j) {
+      for (int i = pmb->is; i <= pmb->ie; ++i) {
+        Real x1 = pmb->pcoord->x1v(i);
+        Real x2 = pmb->pcoord->x2v(j);
+        Real x3 = pmb->pcoord->x3v(k);
+
+        //  the distance to (x1_p, x2_p, 0) 
+        Real dx1 = x1 - x1_p;
+        Real dx2 = x2 - x2_p;
+        Real dx3 = x3;
+        Real dist = std::sqrt(SQR(dx1) + SQR(dx2) + SQR(dx3));
+
+        // 
+        if (dist < r_acc) {
+          // removal fraction（smooth transition）
+          Real factor = std::exp(-SQR(dist / r_acc)); 
+          Real dm_factor = std::min(acc_rate * factor * dt * Omega0, 0.5); // a limit of 0.5
+
+          // 1. removal for mass (IDN / Mass)
+          Real rho_old = cons(IDN, k, j, i);
+          Real rho_new = rho_old * (1.0 - dm_factor);
+          cons(IDN, k, j, i) = rho_new;
+
+          // 2. momentum
+          cons(IM1, k, j, i) *= (1.0 - dm_factor);
+          cons(IM2, k, j, i) *= (1.0 - dm_factor);
+          cons(IM3, k, j, i) *= (1.0 - dm_factor);
+
+          // 3. NON_BAROTROPIC_EOS case: update energy
+          if (NON_BAROTROPIC_EOS) {
+            cons(IEN, k, j, i) *= (1.0 - dm_factor);
+          }
         }
       }
     }
