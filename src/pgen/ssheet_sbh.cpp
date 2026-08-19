@@ -54,6 +54,7 @@ Real x1_p, x2_p; // coordinates(x,y)
 Real eps_p;      // Smoothing length
 Real nu_iso;
 Real r_acc, acc_rate;
+Real beta_cool;
 
 Real Historydvyc(MeshBlock *pmb, int iout);
 Real Historyvxs(MeshBlock *pmb, int iout);
@@ -95,6 +96,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   Pp       = pin->GetOrAddReal("problem","ts",10.0);     // ramp up time for sBH mass
   r_acc    = pin->GetOrAddReal("problem", "racc", eps_p); // accretion radius
   acc_rate = pin->GetOrAddReal("problem", "rate", 0.1); // removal rate
+  beta_cool = pin->GetOrAddReal("problem", "beta_cool", -1.0);
 
   Pp_time  = Pp*2.0*PI;  
 
@@ -627,7 +629,15 @@ void GravitySource(MeshBlock *pmb, const Real time, const Real dt, const AthenaA
           Real vx2 = prim(IVY, k, j, i);
           Real vx3 = prim(IVZ, k, j, i);
           cons(IEN, k, j, i) += dt * rho * (ax1 * vx1 + ax2 * vx2 + ax3 * vx3);
-        }
+          if (beta_cool > 0.0) {
+            Real press = prim(IPR, k, j, i);
+            Real tau_cool = beta_cool / Omega0;
+            // cooling term: dE/dt = -(P - P0) / ((gamma - 1) * tau_cool)
+            Real de_cool = -((press - p0) / gm1) * (dt / tau_cool);
+            cons(IEN, k, j, i) += de_cool;
+          }
+        } // NON_BAROTROPIC_EOS
+        
       }
     }
   }
@@ -681,6 +691,12 @@ void AccretionSource(MeshBlock *pmb, const Real time, const Real dt,
           // 3. NON_BAROTROPIC_EOS case: update energy
           if (NON_BAROTROPIC_EOS) {
             cons(IEN, k, j, i) *= (1.0 - dm_factor);
+            if (beta_cool > 0.0) {
+                Real press = prim(IPR, k, j, i);
+                Real tau_cool = beta_cool / Omega0;
+                Real de_cool = -((press - p0) / gm1) * (dt / tau_cool);
+                cons(IEN, k, j, i) += de_cool;
+            }
           }
         }
       }
