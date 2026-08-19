@@ -213,6 +213,10 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
     std::cout << "iso_cs = " << iso_cs << std::endl;
     std::cout << "d0 = " << d0 << std::endl;
     std::cout << "p0 = " << p0 << std::endl;
+    std::cout << "mp = " << mp << std::endl;
+    std::cout << "x1_p = " << x1_p << std::endl;
+    std::cout << "x2_p = " << x2_p << std::endl;
+    std::cout << "eps_p = " << eps_p << std::endl;
     std::cout << "rad0 = " << rad0 << std::endl;
     std::cout << "Pp = " << Pp << std::endl;
     std::cout << "t0_pp = " << t0_pp << std::endl;
