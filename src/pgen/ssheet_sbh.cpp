@@ -67,6 +67,7 @@ void AccretionSource(MeshBlock *pmb, const Real time, const Real dt,
      const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
      const AthenaArray<Real> &bcc, AthenaArray<Real> &cons, 
      AthenaArray<Real> &cons_scalar);
+Real HistoryAccretionRate(MeshBlock *pmb, int iout);
 } // namespace
 
 //======================================================================================
@@ -172,6 +173,10 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     amp = 0.0;
     nwx = 0;
     nwy = 0;
+    AllocateUserMeshDataField(1);
+    ruser_mesh_data[0].NewAthenaArray(1);
+    AllocateUserHistoryOutput(1);
+    EnrollUserHistoryOutput(0, HistoryAccretionRate, "mdot_p", UserHistoryOperation::sum);
   } else {
     std::stringstream msg;
     msg << "### FATAL ERROR in ssheet.cpp ProblemGenerator"   << std::endl
@@ -633,8 +638,12 @@ void AccretionSource(MeshBlock *pmb, const Real time, const Real dt,
                      const AthenaArray<Real> &bcc, AthenaArray<Real> &cons, 
                      AthenaArray<Real> &cons_scalar) {
   // 
+  pmb->ruser_mesh_data[0](0) = 0.0;
+  
   if (mp <= 0.0 || r_acc <= 0.0) return;
   if (time < t0_pp) return; // 
+
+  Real dM_block = 0.0; // 
 
   for (int k = pmb->ks; k <= pmb->ke; ++k) {
     for (int j = pmb->js; j <= pmb->je; ++j) {
@@ -660,6 +669,10 @@ void AccretionSource(MeshBlock *pmb, const Real time, const Real dt,
           Real rho_new = rho_old * (1.0 - dm_factor);
           cons(IDN, k, j, i) = rho_new;
 
+          Real cell_vol = pmb->pcoord->GetCellVolume(k, j, i);
+          Real dm = (rho_old - rho_new) * cell_vol;
+          dM_block += dm;
+
           // 2. momentum
           cons(IM1, k, j, i) *= (1.0 - dm_factor);
           cons(IM2, k, j, i) *= (1.0 - dm_factor);
@@ -673,6 +686,19 @@ void AccretionSource(MeshBlock *pmb, const Real time, const Real dt,
       }
     }
   }
+  pmb->ruser_mesh_data[0](0) = dM_block;
+}
+
+Real HistoryAccretionRate(MeshBlock *pmb, int iout) {
+  // get current dt
+  Real dt = pmb->pmy_mesh->dt;
+  if (dt <= 0.0) return 0.0;
+
+  // obtain total accreted mass from pmb --> AccretionSource 
+  Real dM_block = pmb->ruser_mesh_data[0](0);
+
+  // accretion rate from each block: (Athena++ will sum over each block)
+  return dM_block / dt;
 }
 
 void GetCylCoord(Coordinates *pco,Real &rad,Real &phi,Real &z,int i,int j,int k) {
