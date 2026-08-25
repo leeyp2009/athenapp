@@ -53,7 +53,7 @@ Real mp, t0_pp, Pp, Pp_time;   // sBH mass
 Real x1_p, x2_p; // coordinates(x,y)
 Real eps_p;      // Smoothing length
 Real nu_iso;
-Real r_acc, acc_rate;
+Real r_acc, acc_rate, delta;
 Real beta_cool;
 
 Real Historydvyc(MeshBlock *pmb, int iout);
@@ -65,6 +65,10 @@ void GravitySource(MeshBlock *pmb, const Real time, const Real dt, const AthenaA
      const AthenaArray<Real> &prim_scalar, const AthenaArray<Real> &bcc,
     AthenaArray<Real> &cons, AthenaArray<Real> &cons_scalar);
 void AccretionSource(MeshBlock *pmb, const Real time, const Real dt, 
+     const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
+     const AthenaArray<Real> &bcc, AthenaArray<Real> &cons, 
+     AthenaArray<Real> &cons_scalar);
+void AccretionSource2(MeshBlock *pmb, const Real time, const Real dt, 
      const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
      const AthenaArray<Real> &bcc, AthenaArray<Real> &cons, 
      AthenaArray<Real> &cons_scalar);
@@ -96,6 +100,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   Pp       = pin->GetOrAddReal("problem","ts",10.0);     // ramp up time for sBH mass
   r_acc    = pin->GetOrAddReal("problem", "racc", eps_p); // accretion radius
   acc_rate = pin->GetOrAddReal("problem", "rate", 0.1); // removal rate
+  delta    = pin->GetOrAddReal("problem", "delta", 0.0); // torque-controlled accretion; delta=0: torque free; delta=1: classic sink 
   beta_cool = pin->GetOrAddReal("problem", "beta_cool", -1.0);
 
   Pp_time  = Pp*2.0*PI;  
@@ -709,6 +714,129 @@ void AccretionSource(MeshBlock *pmb, const Real time, const Real dt,
       }
     }
   }
+  pmb->pmy_mesh->ruser_mesh_data[0](0) = dM_block;
+}
+
+void AccretionSource2(MeshBlock *pmb, const Real time, const Real dt, 
+                     const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar, 
+                     const AthenaArray<Real> &bcc, AthenaArray<Real> &cons, 
+                     AthenaArray<Real> &cons_scalar) {
+  if (mp <= 0.0 || r_acc <= 0.0) return;
+  if (time < t0_pp) return;
+
+  // 
+  Real gamma_i = acc_rate;             //  gamma_i
+  Real r_s_i   = r_acc;                //  r_{s,i}
+  //Real delta   = 1.0;                  // torque-controlled parameter: delta
+
+  // coordinates and velocity of accretion particle (sBH/planet) 
+  Real v1_p = 0.0;                     // x1 (radial) velocity 
+  Real v2_p = 0.0;                     // x2 (azimuthal) velocity
+  Real v3_p = 0.0;
+
+  Real dM_block = 0.0;                 // record total accreted mass in each MeshBlock
+
+  for (int k = pmb->ks; k <= pmb->ke; ++k) {
+    for (int j = pmb->js; j <= pmb->je; ++j) {
+      for (int i = pmb->is; i <= pmb->ie; ++i) {
+        Real x1 = pmb->pcoord->x1v(i);
+        Real x2 = pmb->pcoord->x2v(j);
+        Real x3 = pmb->pcoord->x3v(k);
+
+        // 1. calculate Delta x
+        Real dx1 = x1 - x1_p;
+        Real dx2 = x2 - x2_p;
+        Real dx3 = x3;
+        Real dist_sq = SQR(dx1) + SQR(dx2) + SQR(dx3);
+        Real dist = std::sqrt(dist_sq);
+
+        // 
+        if (dist > 1.0 * r_s_i) continue;
+
+        // 2. calculate sink profile s_i = exp( - (|x - x_i|^4 / r_{s,i}^4) )
+        Real dist_ratio_sq = dist_sq / SQR(r_s_i);
+        Real s_i = std::exp(-SQR(dist_ratio_sq));
+
+        // 3. removal fraction: dm_fraction = gamma_i * Omega0 * s_i * dt
+        Real dm_fraction = gamma_i * Omega0 * s_i * dt;
+        dm_fraction = std::min(dm_fraction, 0.5); // maximum accretion fraction 0.5
+
+        // update density 
+        Real rho_old = cons(IDN, k, j, i);
+        Real rho_new = rho_old * (1.0 - dm_fraction);
+        Real d_rho = rho_old - rho_new; // accreted density
+
+        cons(IDN, k, j, i) = rho_new;
+
+        Real cell_vol = pmb->pcoord->GetCellVolume(k, j, i);
+        dM_block += d_rho * cell_vol;
+
+        // 4. calculate fluid velocity
+        Real v1 = prim(IVX, k, j, i);
+        Real v2 = prim(IVY, k, j, i);
+        Real v3 = prim(IVZ, k, j, i);
+
+        // considering simulations in Shearing Box
+        if (!pmb->porb->orbital_advection_defined) {
+          v2 -= qshear * Omega0 * x1;
+        }
+
+        // relative velocity Delta v = v - v_i
+        Real dv1 = v1 - v1_p;
+        Real dv2 = v2 - v2_p;
+
+        // 5. vector (r_hat, phi_hat)
+        Real r_cyl = std::sqrt(SQR(dx1) + SQR(dx2));
+        Real v1_star, v2_star, v3_star;
+
+        if (r_cyl > 1e-12) {
+          Real r1_hat = dx1 / r_cyl;   // r_hat_x
+          Real r2_hat = dx2 / r_cyl;   // r_hat_y
+
+          Real phi1_hat = -r2_hat;     // phi_hat_x
+          Real phi2_hat =  r1_hat;     // phi_hat_y
+
+          // projection of velocity
+          Real dv_r   = dv1 * r1_hat + dv2 * r2_hat;
+          Real dv_phi = dv1 * phi1_hat + dv2 * phi2_hat;
+
+          // calculate v_i* = (dv_r * r_hat + delta * dv_phi * phi_hat) + v_i
+          v1_star = (dv_r * r1_hat + delta * dv_phi * phi1_hat) + v1_p;
+          v2_star = (dv_r * r2_hat + delta * dv_phi * phi2_hat) + v2_p;
+        } else {
+          v1_star = v1;
+          v2_star = v2;
+        }
+        v3_star = v3;
+
+        // transfer due to orbital advection 
+        if (!pmb->porb->orbital_advection_defined) {
+          v2_star += qshear * Omega0 * x1;
+        }
+
+        // 6. update (IM1, IM2, IM3)
+        cons(IM1, k, j, i) -= d_rho * v1_star;
+        cons(IM2, k, j, i) -= d_rho * v2_star;
+        cons(IM3, k, j, i) -= d_rho * v3_star;
+
+        // 7. update energy in NON_BAROTROPIC_EOS 
+        if (NON_BAROTROPIC_EOS) {
+          // including kinetic energy and internal energy 
+          cons(IEN, k, j, i) *= (1.0 - dm_fraction);
+
+          // Beta Cooling 
+          if (beta_cool > 0.0) {
+            Real press = prim(IPR, k, j, i);
+            Real tau_cool = beta_cool / Omega0;
+            Real de_cool = -((press - p0) / gm1) * (dt / tau_cool);
+            cons(IEN, k, j, i) += de_cool;
+          }
+        }
+      }
+    }
+  }
+
+  // record the accreted mass
   pmb->pmy_mesh->ruser_mesh_data[0](0) = dM_block;
 }
 
