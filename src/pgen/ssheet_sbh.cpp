@@ -64,11 +64,11 @@ void GetCylCoord(Coordinates *pco,Real &rad,Real &phi,Real &z,int i,int j,int k)
 void GravitySource(MeshBlock *pmb, const Real time, const Real dt, const AthenaArray<Real> &prim,
      const AthenaArray<Real> &prim_scalar, const AthenaArray<Real> &bcc,
     AthenaArray<Real> &cons, AthenaArray<Real> &cons_scalar);
-void AccretionSource(MeshBlock *pmb, const Real time, const Real dt, 
+void (MeshBlock *pmb, const Real time, const Real dt, 
      const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
      const AthenaArray<Real> &bcc, AthenaArray<Real> &cons, 
      AthenaArray<Real> &cons_scalar);
-void AccretionSource2(MeshBlock *pmb, const Real time, const Real dt, 
+void 2(MeshBlock *pmb, const Real time, const Real dt, 
      const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
      const AthenaArray<Real> &bcc, AthenaArray<Real> &cons, 
      AthenaArray<Real> &cons_scalar);
@@ -192,7 +192,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   }
 
   EnrollUserExplicitSourceFunction(GravitySource);
-  EnrollUserExplicitSourceFunction(AccretionSource);
+  EnrollUserExplicitSourceFunction(AccretionSource2);
 
   return;
 }
