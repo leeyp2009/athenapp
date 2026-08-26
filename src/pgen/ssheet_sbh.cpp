@@ -72,6 +72,10 @@ void AccretionSource2(MeshBlock *pmb, const Real time, const Real dt,
      const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
      const AthenaArray<Real> &bcc, AthenaArray<Real> &cons, 
      AthenaArray<Real> &cons_scalar);
+void BetaCooling(MeshBlock *pmb, const Real time, const Real dt, 
+     const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
+     const AthenaArray<Real> &bcc, AthenaArray<Real> &cons, 
+     AthenaArray<Real> &cons_scalar);
 Real HistoryAccretionRate(MeshBlock *pmb, int iout);
 } // namespace
 
@@ -193,6 +197,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
 
   EnrollUserExplicitSourceFunction(GravitySource);
   EnrollUserExplicitSourceFunction(AccretionSource2);
+  EnrollUserExplicitSourceFunction(BetaCooling);
 
   return;
 }
@@ -642,13 +647,6 @@ void GravitySource(MeshBlock *pmb, const Real time, const Real dt, const AthenaA
           Real vx2 = prim(IVY, k, j, i);
           Real vx3 = prim(IVZ, k, j, i);
           cons(IEN, k, j, i) += dt * rho * (ax1 * vx1 + ax2 * vx2 + ax3 * vx3);
-          if (beta_cool > 0.0) {
-            Real press = prim(IPR, k, j, i);
-            Real tau_cool = beta_cool / Omega0;
-            // cooling term: dE/dt = -(P - P0) / ((gamma - 1) * tau_cool)
-            Real de_cool = -((press - p0) / gm1) * (dt / tau_cool);
-            cons(IEN, k, j, i) += de_cool;
-          }
         } // NON_BAROTROPIC_EOS
         
       }
@@ -704,12 +702,6 @@ void AccretionSource(MeshBlock *pmb, const Real time, const Real dt,
           // 3. NON_BAROTROPIC_EOS case: update energy
           if (NON_BAROTROPIC_EOS) {
             cons(IEN, k, j, i) *= (1.0 - dm_factor);
-            if (beta_cool > 0.0) {
-                Real press = prim(IPR, k, j, i);
-                Real tau_cool = beta_cool / Omega0;
-                Real de_cool = -((press - p0) / gm1) * (dt / tau_cool);
-                cons(IEN, k, j, i) += de_cool;
-            }
           }
         }
       }
@@ -829,13 +821,6 @@ void AccretionSource2(MeshBlock *pmb, const Real time, const Real dt,
           // including kinetic energy and internal energy 
           cons(IEN, k, j, i) *= (1.0 - dm_fraction);
 
-          // Beta Cooling 
-          if (beta_cool > 0.0) {
-            Real press = prim(IPR, k, j, i);
-            Real tau_cool = beta_cool / Omega0;
-            Real de_cool = -((press - p0) / gm1) * (dt / tau_cool);
-            cons(IEN, k, j, i) += de_cool;
-          }
         }
       }
     }
@@ -843,6 +828,33 @@ void AccretionSource2(MeshBlock *pmb, const Real time, const Real dt,
 
   // record the accreted mass
   pmb->pmy_mesh->ruser_mesh_data[0](0) = dM_block;
+}
+
+void BetaCooling(MeshBlock *pmb, const Real time, const Real dt, 
+                     const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
+                     const AthenaArray<Real> &bcc, AthenaArray<Real> &cons, 
+                     AthenaArray<Real> &cons_scalar) {
+
+  for (int k = pmb->ks; k <= pmb->ke; ++k) {
+    for (int j = pmb->js; j <= pmb->je; ++j) {
+      for (int i = pmb->is; i <= pmb->ie; ++i) {
+        Real x1 = pmb->pcoord->x1v(i);
+        Real x2 = pmb->pcoord->x2v(j);
+        Real x3 = pmb->pcoord->x3v(k);
+
+          // NON_BAROTROPIC_EOS case: update energy
+          if (NON_BAROTROPIC_EOS) {
+            if (beta_cool > 0.0) {
+                Real press = prim(IPR, k, j, i);
+                Real tau_cool = beta_cool / Omega0;
+                Real de_cool = -((press - p0) / gm1) * (dt / tau_cool);
+                cons(IEN, k, j, i) += de_cool;
+            }
+          }
+        }
+      }
+  }
+  
 }
 
 Real HistoryAccretionRate(MeshBlock *pmb, int iout) {
