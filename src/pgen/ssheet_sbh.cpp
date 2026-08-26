@@ -64,11 +64,11 @@ void GetCylCoord(Coordinates *pco,Real &rad,Real &phi,Real &z,int i,int j,int k)
 void GravitySource(MeshBlock *pmb, const Real time, const Real dt, const AthenaArray<Real> &prim,
      const AthenaArray<Real> &prim_scalar, const AthenaArray<Real> &bcc,
     AthenaArray<Real> &cons, AthenaArray<Real> &cons_scalar);
-void (MeshBlock *pmb, const Real time, const Real dt, 
+void AccretionSource(MeshBlock *pmb, const Real time, const Real dt, 
      const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
      const AthenaArray<Real> &bcc, AthenaArray<Real> &cons, 
      AthenaArray<Real> &cons_scalar);
-void 2(MeshBlock *pmb, const Real time, const Real dt, 
+void AccretionSource2(MeshBlock *pmb, const Real time, const Real dt, 
      const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
      const AthenaArray<Real> &bcc, AthenaArray<Real> &cons, 
      AthenaArray<Real> &cons_scalar);
@@ -784,13 +784,13 @@ void AccretionSource2(MeshBlock *pmb, const Real time, const Real dt,
         // relative velocity Delta v = v - v_i
         Real dv1 = v1 - v1_p;
         Real dv2 = v2 - v2_p;
-        Real dv3 = v3;        # v3_p = 0.0
+        Real dv3 = v3;        // v3_p = 0.0
 
         // 5. vector (r_hat, phi_hat)
         Real dr = std::sqrt(SQR(dx1) + SQR(dx2) + SQR(dx3));
         Real v1_star, v2_star, v3_star;
 
-        if (r_cyl > 1e-12) {
+        if (dr > 1e-12) {
           Real r1_hat = dx1 / dr;   // r_hat_x
           Real r2_hat = dx2 / dr;   // r_hat_y
           Real r3_hat = dx3 / dr;   // r_hat_z
