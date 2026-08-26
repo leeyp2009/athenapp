@@ -228,6 +228,7 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
     std::cout << "nu_iso = " << nu_iso << std::endl;
     std::cout << "r_acc = " << r_acc << std::endl;
     std::cout << "acc_rate = " << acc_rate << std::endl;
+    std::cout << "acc_delta = " << delta << std::endl;
     std::cout << "beta_cool = " << beta_cool << std::endl;
     std::cout << "ipert  = " << ipert  << std::endl;
     std::cout << "[ssheet.cpp]: [Lx,Ly,Lz] = [" <<x1size <<","<<x2size
