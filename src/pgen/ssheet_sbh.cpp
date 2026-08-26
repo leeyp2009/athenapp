@@ -784,30 +784,34 @@ void AccretionSource2(MeshBlock *pmb, const Real time, const Real dt,
         // relative velocity Delta v = v - v_i
         Real dv1 = v1 - v1_p;
         Real dv2 = v2 - v2_p;
+        Real dv3 = v3;        # v3_p = 0.0
 
         // 5. vector (r_hat, phi_hat)
-        Real r_cyl = std::sqrt(SQR(dx1) + SQR(dx2));
+        Real dr = std::sqrt(SQR(dx1) + SQR(dx2) + SQR(dx3));
         Real v1_star, v2_star, v3_star;
 
         if (r_cyl > 1e-12) {
-          Real r1_hat = dx1 / r_cyl;   // r_hat_x
-          Real r2_hat = dx2 / r_cyl;   // r_hat_y
+          Real r1_hat = dx1 / dr;   // r_hat_x
+          Real r2_hat = dx2 / dr;   // r_hat_y
+          Real r3_hat = dx3 / dr;   // r_hat_z
 
           Real phi1_hat = -r2_hat;     // phi_hat_x
           Real phi2_hat =  r1_hat;     // phi_hat_y
+          Real phi3_hat = 0.0;
 
           // projection of velocity
-          Real dv_r   = dv1 * r1_hat + dv2 * r2_hat;
+          Real dv_r   = dv1 * r1_hat + dv2 * r2_hat + dv3 * r3_hat;
           Real dv_phi = dv1 * phi1_hat + dv2 * phi2_hat;
 
           // calculate v_i* = (dv_r * r_hat + delta * dv_phi * phi_hat) + v_i
           v1_star = (dv_r * r1_hat + delta * dv_phi * phi1_hat) + v1_p;
           v2_star = (dv_r * r2_hat + delta * dv_phi * phi2_hat) + v2_p;
+          v3_star = (dv_r * r3_hat + delta * dv_phi * phi3_hat);
         } else {
           v1_star = v1;
           v2_star = v2;
         }
-        v3_star = v3;
+        // v3_star = v3;
 
         // transfer due to orbital advection 
         if (!pmb->porb->orbital_advection_defined) {
