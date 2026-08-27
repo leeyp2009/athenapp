@@ -76,6 +76,10 @@ void BetaCooling(MeshBlock *pmb, const Real time, const Real dt,
      const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
      const AthenaArray<Real> &bcc, AthenaArray<Real> &cons, 
      AthenaArray<Real> &cons_scalar);
+void SourceTerm(MeshBlock *pmb, const Real time, const Real dt, 
+     const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
+     const AthenaArray<Real> &bcc, AthenaArray<Real> &cons, 
+     AthenaArray<Real> &cons_scalar);
 Real HistoryAccretionRate(MeshBlock *pmb, int iout);
 } // namespace
 
