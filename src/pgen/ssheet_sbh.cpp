@@ -54,6 +54,7 @@ Real x1_p, x2_p; // coordinates(x,y)
 Real eps_p;      // Smoothing length
 Real nu_iso;
 Real r_acc, acc_rate, delta;
+bool acc_flag;
 Real beta_cool;
 
 Real Historydvyc(MeshBlock *pmb, int iout);
@@ -109,6 +110,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   r_acc    = pin->GetOrAddReal("problem", "racc", eps_p); // accretion radius
   acc_rate = pin->GetOrAddReal("problem", "rate", 0.1); // removal rate
   delta    = pin->GetOrAddReal("problem", "delta", 0.0); // torque-controlled accretion; delta=0: torque free; delta=1: classic sink 
+  acc_flag   = pin->GetOrAddBoolean("problem","acc_flag",true);
   beta_cool = pin->GetOrAddReal("problem", "beta_cool", -1.0);
 
   Pp_time  = Pp*2.0*PI;  
@@ -199,7 +201,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     ATHENA_ERROR(msg);
   }
 
-  EnrollUserExplicitSourceFunction(GravitySource);
+  EnrollUserExplicitSourceFunction(SourceTerm);
   EnrollUserExplicitSourceFunction(AccretionSource2);
   EnrollUserExplicitSourceFunction(BetaCooling);
 
@@ -238,6 +240,7 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
     std::cout << "r_acc = " << r_acc << std::endl;
     std::cout << "acc_rate = " << acc_rate << std::endl;
     std::cout << "acc_delta = " << delta << std::endl;
+    std::cout << "acc_flag = " << acc_flag << std::endl;
     std::cout << "beta_cool = " << beta_cool << std::endl;
     std::cout << "ipert  = " << ipert  << std::endl;
     std::cout << "[ssheet.cpp]: [Lx,Ly,Lz] = [" <<x1size <<","<<x2size
@@ -600,7 +603,7 @@ Real Historydvys(MeshBlock *pmb, int iout) {
   return dvys/(dvy0*tvol);
 }
 
-void GravitySource(MeshBlock *pmb, const Real time, const Real dt, const AthenaArray<Real> &prim,
+void SourceTerm(MeshBlock *pmb, const Real time, const Real dt, const AthenaArray<Real> &prim,
      const AthenaArray<Real> &prim_scalar, const AthenaArray<Real> &bcc,
     AthenaArray<Real> &cons, AthenaArray<Real> &cons_scalar) {
   
@@ -656,6 +659,13 @@ void GravitySource(MeshBlock *pmb, const Real time, const Real dt, const AthenaA
       }
     }
   }
+
+   if ((acc_flag) && (mp>0.0)){
+     AccretionSource2(pmb, time, dt, prim, prim_scalar, bcc, cons, cons_scalar);
+   }
+   if ((NON_BAROTROPIC_EOS) && (beta_cool > 0.0)){
+     BetaCooling(pmb, time, dt, prim, prim_scalar, bcc, cons, cons_scalar);
+   }
 }
 
 void AccretionSource(MeshBlock *pmb, const Real time, const Real dt, 
@@ -847,14 +857,14 @@ void BetaCooling(MeshBlock *pmb, const Real time, const Real dt,
         Real x3 = pmb->pcoord->x3v(k);
 
           // NON_BAROTROPIC_EOS case: update energy
-          if (NON_BAROTROPIC_EOS) {
-            if (beta_cool > 0.0) {
+          //if (NON_BAROTROPIC_EOS) {
+          //  if (beta_cool > 0.0) {
                 Real press = prim(IPR, k, j, i);
                 Real tau_cool = beta_cool / Omega0;
                 Real de_cool = -((press - p0) / gm1) * (dt / tau_cool);
                 cons(IEN, k, j, i) += de_cool;
-            }
-          }
+          //  }
+          // }
         }
       }
   }
