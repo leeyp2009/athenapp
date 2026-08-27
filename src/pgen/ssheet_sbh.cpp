@@ -202,8 +202,8 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   }
 
   EnrollUserExplicitSourceFunction(SourceTerm);
-  EnrollUserExplicitSourceFunction(AccretionSource2);
-  EnrollUserExplicitSourceFunction(BetaCooling);
+  //EnrollUserExplicitSourceFunction(AccretionSource2);
+  //EnrollUserExplicitSourceFunction(BetaCooling);
 
   return;
 }
@@ -607,7 +607,7 @@ void SourceTerm(MeshBlock *pmb, const Real time, const Real dt, const AthenaArra
      const AthenaArray<Real> &prim_scalar, const AthenaArray<Real> &bcc,
     AthenaArray<Real> &cons, AthenaArray<Real> &cons_scalar) {
   
-  if (mp <= 0.0) return; // 
+  if ((mp <= 0.0) && (beta_cool < 0.0)) return; // 
 
   Real fmp = 0.0;
   if (time < t0_pp) {
