@@ -16,6 +16,8 @@
 
 // C++ headers
 #include <cmath>      // sqrt()
+#include <algorithm>  // max(), min()
+#include <cstring>    // strcmp()
 #include <fstream>    // ofstream
 #include <iomanip>    // setprecision
 #include <iostream>   // cout, endl
@@ -56,6 +58,8 @@ Real nu_iso;
 Real r_acc, acc_rate, delta;
 bool acc_flag;
 Real beta_cool;
+bool acc_history_allocated;
+int acc_history_index;
 
 Real Historydvyc(MeshBlock *pmb, int iout);
 Real Historyvxs(MeshBlock *pmb, int iout);
@@ -67,7 +71,7 @@ void AccretionSource(MeshBlock *pmb, const Real time, const Real dt,
      const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
      const AthenaArray<Real> &bcc, AthenaArray<Real> &cons, 
      AthenaArray<Real> &cons_scalar);
-void AccretionSource2(MeshBlock *pmb, const Real time, const Real dt, 
+void AccretionSource2(MeshBlock *pmb, const Real time, const Real dt, const Real mass_fraction,
      const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
      const AthenaArray<Real> &bcc, AthenaArray<Real> &cons, 
      AthenaArray<Real> &cons_scalar);
@@ -139,6 +143,25 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   qshear = pin->GetReal("orbital_advection","qshear");
   Omega0 = pin->GetReal("orbital_advection","Omega0");
 
+  if (mp < 0.0 || eps_p <= 0.0 || r_acc <= 0.0 || acc_rate < 0.0 ||
+      delta < 0.0 || delta > 1.0 || Pp < 0.0 ||
+      d0 <= 0.0 || (NON_BAROTROPIC_EOS && p0 < 0.0)) {
+    std::stringstream msg;
+    msg << "### FATAL ERROR in ssheet_sbh.cpp InitUserMeshData" << std::endl
+        << "Require d0 > 0, mp >= 0, eps_p > 0, racc > 0, rate >= 0, "
+        << "ts >= 0, and 0 <= delta <= 1." << std::endl;
+    ATHENA_ERROR(msg);
+  }
+  if ((mp > 0.0 || beta_cool > 0.0) && Omega0 <= 0.0) {
+    std::stringstream msg;
+    msg << "### FATAL ERROR in ssheet_sbh.cpp InitUserMeshData" << std::endl
+        << "Omega0 must be positive for sink particles or beta cooling." << std::endl;
+    ATHENA_ERROR(msg);
+  }
+
+  const bool need_accretion_history = (mp > 0.0 && acc_flag);
+  acc_history_allocated = false;
+  acc_history_index = 0;
   if (ipert == 3) {
     amp = pin->GetReal("problem","amp");
     nwx = pin->GetInteger("problem","nwx");
@@ -152,9 +175,10 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     error_output = pin->GetOrAddBoolean("problem","error_output",false);
     if (error_output) {
       // allocateDataField
-      AllocateRealUserMeshDataField(2);
+      AllocateRealUserMeshDataField(need_accretion_history ? 3 : 2);
       ruser_mesh_data[0].NewAthenaArray(mesh_size.nx3, mesh_size.nx2, mesh_size.nx1);
       ruser_mesh_data[1].NewAthenaArray(mesh_size.nx3, mesh_size.nx2, mesh_size.nx1);
+      if (need_accretion_history) ruser_mesh_data[2].NewAthenaArray(1);
 
       // read history output timing
       InputBlock *pib = pin->pfirst_block;
@@ -176,13 +200,27 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
       }
 
       // allocate User-defined History Output
-      AllocateUserHistoryOutput(3);
+      AllocateUserHistoryOutput(need_accretion_history ? 4 : 3);
       EnrollUserHistoryOutput(0, Historydvyc, "dvyc",
                               UserHistoryOperation::sum);
       EnrollUserHistoryOutput(1, Historyvxs,  "vxs",
                               UserHistoryOperation::sum);
       EnrollUserHistoryOutput(2, Historydvys, "dvys",
                               UserHistoryOperation::sum);
+      if (need_accretion_history) {
+        acc_history_index = 2;
+        EnrollUserHistoryOutput(3, HistoryAccretionRate, "mdot_p",
+                                UserHistoryOperation::sum);
+        acc_history_allocated = true;
+      }
+    }
+    if (need_accretion_history && !error_output) {
+      AllocateRealUserMeshDataField(1);
+      ruser_mesh_data[0].NewAthenaArray(1);
+      AllocateUserHistoryOutput(1);
+      EnrollUserHistoryOutput(0, HistoryAccretionRate, "mdot_p",
+                              UserHistoryOperation::sum);
+      acc_history_allocated = true;
     }
   } else if (ipert == 1 || ipert == 2) {
     amp = 0.0;
@@ -192,6 +230,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     ruser_mesh_data[0].NewAthenaArray(1);
     AllocateUserHistoryOutput(1);
     EnrollUserHistoryOutput(0, HistoryAccretionRate, "mdot_p", UserHistoryOperation::sum);
+    acc_history_allocated = true;
   } else {
     std::stringstream msg;
     msg << "### FATAL ERROR in ssheet.cpp ProblemGenerator"   << std::endl
@@ -605,22 +644,21 @@ void SourceTerm(MeshBlock *pmb, const Real time, const Real dt, const AthenaArra
      const AthenaArray<Real> &prim_scalar, const AthenaArray<Real> &bcc,
     AthenaArray<Real> &cons, AthenaArray<Real> &cons_scalar) {
   
-  if ((mp <= 0.0) && (beta_cool < 0.0)) return; // 
-
+  if (acc_history_allocated) pmb->pmy_mesh->ruser_mesh_data[acc_history_index](0) = 0.0;
   Real fmp = 0.0;
-  if (time < t0_pp) {
-     return; 
-  } else if (time < t0_pp + Pp_time) {
-     // ramp up 
-     Real tau = (time - t0_pp) / Pp_time;
+  if (mp > 0.0 && time >= t0_pp) {
+   if (Pp_time > 0.0 && time < t0_pp + Pp_time) {
+     const Real tau = (time - t0_pp) / Pp_time;
      fmp = SQR(std::sin(0.5 * PI * tau));
-  } else {
+   } else {
      fmp = 1.0;
+   }
   }
-     
-  for (int k = pmb->ks; k <= pmb->ke; ++k) {
-    for (int j = pmb->js; j <= pmb->je; ++j) {
-      for (int i = pmb->is; i <= pmb->ie; ++i) {
+
+  if (mp > 0.0 && fmp > 0.0) {
+   for (int k = pmb->ks; k <= pmb->ke; ++k) {
+     for (int j = pmb->js; j <= pmb->je; ++j) {
+       for (int i = pmb->is; i <= pmb->ie; ++i) {
         Real x1 = pmb->pcoord->x1v(i);
         Real x2 = pmb->pcoord->x2v(j);
         Real x3 = pmb->pcoord->x3v(k);
@@ -654,16 +692,17 @@ void SourceTerm(MeshBlock *pmb, const Real time, const Real dt, const AthenaArra
           cons(IEN, k, j, i) += dt * rho * (ax1 * vx1 + ax2 * vx2 + ax3 * vx3);
         } // NON_BAROTROPIC_EOS
         
+        }
       }
     }
-  }
 
-   if ((acc_flag) && (mp>0.0)){
-     AccretionSource2(pmb, time, dt, prim, prim_scalar, bcc, cons, cons_scalar);
-   }
-   if ((NON_BAROTROPIC_EOS) && (beta_cool > 0.0)){
-     BetaCooling(pmb, time, dt, prim, prim_scalar, bcc, cons, cons_scalar);
-   }
+    if (acc_flag) {
+      AccretionSource2(pmb, time, dt, fmp, prim, prim_scalar, bcc, cons, cons_scalar);
+    }
+  }
+  if (NON_BAROTROPIC_EOS && beta_cool > 0.0) {
+    BetaCooling(pmb, time, dt, prim, prim_scalar, bcc, cons, cons_scalar);
+  }
 }
 
 void AccretionSource(MeshBlock *pmb, const Real time, const Real dt, 
@@ -722,12 +761,12 @@ void AccretionSource(MeshBlock *pmb, const Real time, const Real dt,
   pmb->pmy_mesh->ruser_mesh_data[0](0) = dM_block;
 }
 
-void AccretionSource2(MeshBlock *pmb, const Real time, const Real dt, 
+void AccretionSource2(MeshBlock *pmb, const Real time, const Real dt, const Real mass_fraction,
                      const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar, 
                      const AthenaArray<Real> &bcc, AthenaArray<Real> &cons, 
                      AthenaArray<Real> &cons_scalar) {
   if (mp <= 0.0 || r_acc <= 0.0) return;
-  if (time < t0_pp) return;
+  if (time < t0_pp || dt <= 0.0) return;
 
   // 
   Real gamma_i = acc_rate;             //  gamma_i
@@ -763,7 +802,7 @@ void AccretionSource2(MeshBlock *pmb, const Real time, const Real dt,
         Real s_i = std::exp(-SQR(dist_ratio_sq));
 
         // 3. removal fraction: dm_fraction = gamma_i * Omega0 * s_i * dt
-        Real dm_fraction = gamma_i * Omega0 * s_i * dt;
+        Real dm_fraction = mass_fraction * gamma_i * Omega0 * s_i * dt;
         dm_fraction = std::min(dm_fraction, 0.5); // maximum accretion fraction 0.5
 
         // update density 
@@ -815,6 +854,7 @@ void AccretionSource2(MeshBlock *pmb, const Real time, const Real dt,
         } else {
           v1_star = v1;
           v2_star = v2;
+          v3_star = v3;
         }
         // v3_star = v3;
 
@@ -830,16 +870,22 @@ void AccretionSource2(MeshBlock *pmb, const Real time, const Real dt,
 
         // 7. update energy in NON_BAROTROPIC_EOS 
         if (NON_BAROTROPIC_EOS) {
-          // including kinetic energy and internal energy 
-          cons(IEN, k, j, i) *= (1.0 - dm_fraction);
-
+          const Real eint = std::max(0.0, prim(IPR, k, j, i) / gm1);
+          const Real e_removed = eint + 0.5 * (SQR(v1_star) + SQR(v2_star)
+                                               + SQR(v3_star));
+          cons(IEN, k, j, i) -= d_rho * e_removed;
+        }
+        for (int n = 0; n < NSCALARS; ++n) {
+          cons_scalar(n, k, j, i) *= (1.0 - dm_fraction);
         }
       }
     }
   }
 
   // record the accreted mass
-  pmb->pmy_mesh->ruser_mesh_data[0](0) = dM_block;
+  if (acc_history_allocated) {
+    pmb->pmy_mesh->ruser_mesh_data[acc_history_index](0) = dM_block;
+  }
 }
 
 void BetaCooling(MeshBlock *pmb, const Real time, const Real dt, 
@@ -847,22 +893,15 @@ void BetaCooling(MeshBlock *pmb, const Real time, const Real dt,
                      const AthenaArray<Real> &bcc, AthenaArray<Real> &cons, 
                      AthenaArray<Real> &cons_scalar) {
 
+  if (beta_cool <= 0.0 || dt <= 0.0) return;
+  const Real tau_cool = beta_cool / Omega0;
+  const Real relax = 1.0 - std::exp(-dt / tau_cool);
   for (int k = pmb->ks; k <= pmb->ke; ++k) {
     for (int j = pmb->js; j <= pmb->je; ++j) {
       for (int i = pmb->is; i <= pmb->ie; ++i) {
-        Real x1 = pmb->pcoord->x1v(i);
-        Real x2 = pmb->pcoord->x2v(j);
-        Real x3 = pmb->pcoord->x3v(k);
-
-          // NON_BAROTROPIC_EOS case: update energy
-          //if (NON_BAROTROPIC_EOS) {
-          //  if (beta_cool > 0.0) {
-                Real press = prim(IPR, k, j, i);
-                Real tau_cool = beta_cool / Omega0;
-                Real de_cool = -((press - p0) / gm1) * (dt / tau_cool);
-                cons(IEN, k, j, i) += de_cool;
-          //  }
-          // }
+        const Real press = prim(IPR, k, j, i);
+        const Real de_cool = -std::max(0.0, press - p0) / gm1 * relax;
+        cons(IEN, k, j, i) += de_cool;
         }
       }
   }
@@ -875,7 +914,7 @@ Real HistoryAccretionRate(MeshBlock *pmb, int iout) {
   if (dt <= 0.0) return 0.0;
 
   // obtain total accreted mass from pmb --> AccretionSource 
-  Real dM_block = pmb->pmy_mesh->ruser_mesh_data[0](0);
+  Real dM_block = pmb->pmy_mesh->ruser_mesh_data[acc_history_index](0);
 
   // accretion rate from each block: (Athena++ will sum over each block)
   return dM_block / dt;
